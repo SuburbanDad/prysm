@@ -45,6 +45,13 @@ http_archive(
     strip_prefix = "rules_k8s-7475ba20133e4a3f585a3648db6d055e7d1c5f78",
     url = "https://github.com/bazelbuild/rules_k8s/archive/7475ba20133e4a3f585a3648db6d055e7d1c5f78.tar.gz",
 )
+load("@io_bazel_rules_docker//toolchains/docker:toolchain.bzl",
+    docker_toolchain_configure="toolchain_configure"
+)
+docker_toolchain_configure(
+  name = "docker_config",
+  client_config="/home/pi/.docker",
+)
 
 load(
     "@io_bazel_rules_docker//repositories:repositories.bzl",

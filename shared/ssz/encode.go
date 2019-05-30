@@ -156,7 +156,7 @@ func makeBytesEncoder() (encoder, encodeSizer, error) {
 	encoder := func(val reflect.Value, w *encbuf) error {
 		b := val.Bytes()
 		sizeEnc := make([]byte, lengthBytes)
-		if len(val.Bytes()) >= 2<<32 {
+		if int64(len(val.Bytes())) >= 2<<32 {
 			return errors.New("bytes oversize")
 		}
 		binary.LittleEndian.PutUint32(sizeEnc, uint32(len(b)))
@@ -165,7 +165,7 @@ func makeBytesEncoder() (encoder, encodeSizer, error) {
 		return nil
 	}
 	encodeSizer := func(val reflect.Value) (uint32, error) {
-		if len(val.Bytes()) >= 2<<32 {
+		if int64(len(val.Bytes())) >= 2<<32 {
 			return 0, errors.New("bytes oversize")
 		}
 		return lengthBytes + uint32(len(val.Bytes())), nil
@@ -183,7 +183,7 @@ func makeByteArrayEncoder() (encoder, encodeSizer, error) {
 			val = copyVal
 		}
 		sizeEnc := make([]byte, lengthBytes)
-		if val.Len() >= 2<<32 {
+		if int64(val.Len()) >= 2<<32 {
 			return errors.New("bytes oversize")
 		}
 		binary.LittleEndian.PutUint32(sizeEnc, uint32(val.Len()))
@@ -192,7 +192,7 @@ func makeByteArrayEncoder() (encoder, encodeSizer, error) {
 		return nil
 	}
 	encodeSizer := func(val reflect.Value) (uint32, error) {
-		if val.Len() >= 2<<32 {
+		if int64(val.Len()) >= 2<<32 {
 			return 0, errors.New("bytes oversize")
 		}
 		return lengthBytes + uint32(val.Len()), nil
@@ -214,7 +214,7 @@ func makeSliceEncoder(typ reflect.Type) (encoder, encodeSizer, error) {
 				return fmt.Errorf("failed to encode element of slice/array: %v", err)
 			}
 		}
-		totalSize := len(w.str) - lengthBytes - origBufSize
+		totalSize := int64(len(w.str) - lengthBytes - origBufSize)
 		if totalSize >= 2<<32 {
 			return errors.New("slice oversize")
 		}
@@ -249,7 +249,7 @@ func makeStructEncoder(typ reflect.Type) (encoder, encodeSizer, error) {
 				return fmt.Errorf("failed to encode field of struct: %v", err)
 			}
 		}
-		totalSize := len(w.str) - lengthBytes - origBufSize
+		totalSize := int64(len(w.str) - lengthBytes - origBufSize)
 		if totalSize >= 2<<32 {
 			return errors.New("struct oversize")
 		}

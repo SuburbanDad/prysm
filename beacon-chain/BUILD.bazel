@@ -31,9 +31,9 @@ go_image(
         "main.go",
         "usage.go",
     ],
-    goarch = "amd64",
+    goarch = "arm",
     goos = "linux",
-    importpath = "github.com/prysmaticlabs/prysm/beacon-chain",
+    importpath = "github.com/suburbandad/beacon-chain",
     race = "off",
     static = "off",  # Static enabled binary seems to cause issues with DNS lookup with cgo.
     tags = ["manual"],
@@ -57,11 +57,11 @@ container_push(
     name = "push_image",
     format = "Docker",
     image = ":image",
-    registry = "gcr.io",
-    repository = "prysmaticlabs/prysm/beacon-chain",
-    tag = "latest",
+    registry = "index.docker.io",
+    repository = "suburbandad/beacon-chain",
+    tag = "arm7l_latest",
     tags = ["manual"],
-    visibility = ["//visibility:private"],
+    visibility = ["//visibility:public"],
 )
 
 go_binary(
