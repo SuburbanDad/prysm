@@ -37,7 +37,7 @@ go_image(
         "usage.go",
     ],
     base = "//tools:cc_image",
-    goarch = "amd64",
+    goarch = "arm64",
     goos = "linux",
     importpath = "github.com/prysmaticlabs/prysm/beacon-chain",
     race = "off",
