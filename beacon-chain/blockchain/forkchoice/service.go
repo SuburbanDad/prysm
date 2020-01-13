@@ -39,7 +39,7 @@ type ForkChoicer interface {
 type Store struct {
 	ctx                   context.Context
 	cancel                context.CancelFunc
-	db                    db.Database
+	db                    db.HeadAccessDatabase
 	justifiedCheckpt      *ethpb.Checkpoint
 	finalizedCheckpt      *ethpb.Checkpoint
 	prevFinalizedCheckpt  *ethpb.Checkpoint
@@ -52,11 +52,13 @@ type Store struct {
 	initSyncState         map[[32]byte]*pb.BeaconState
 	initSyncStateLock     sync.RWMutex
 	nextEpochBoundarySlot uint64
+	filteredBlockTree     map[[32]byte]*ethpb.BeaconBlock
+	filteredBlockTreeLock   sync.RWMutex
 }
 
 // NewForkChoiceService instantiates a new service instance that will
 // be registered into a running beacon node.
-func NewForkChoiceService(ctx context.Context, db db.Database) *Store {
+func NewForkChoiceService(ctx context.Context, db db.HeadAccessDatabase) *Store {
 	ctx, cancel := context.WithCancel(ctx)
 	return &Store{
 		ctx:             ctx,
@@ -262,9 +264,17 @@ func (s *Store) Head(ctx context.Context) ([]byte, error) {
 	defer span.End()
 
 	head := s.JustifiedCheckpt().Root
-	filteredBlocks, err := s.getFilterBlockTree(ctx)
-	if err != nil {
-		return nil, err
+	filteredBlocks := make(map[[32]byte]*ethpb.BeaconBlock)
+	var err error
+	if featureconfig.Get().EnableBlockTreeCache {
+		s.filteredBlockTreeLock.RLock()
+		filteredBlocks = s.filteredBlockTree
+		s.filteredBlockTreeLock.RUnlock()
+	} else {
+		filteredBlocks, err = s.getFilterBlockTree(ctx)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	justifiedSlot := helpers.StartSlot(s.justifiedCheckpt.Epoch)
