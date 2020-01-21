@@ -60,7 +60,7 @@ var (
 	PProfAddrFlag = cli.StringFlag{
 		Name:  "pprofaddr",
 		Usage: "pprof HTTP server listening interface",
-		Value: "127.0.0.1",
+		Value: "0.0.0.0",
 	}
 	// MemProfileRateFlag to specify the mem profiling rate.
 	MemProfileRateFlag = cli.IntFlag{
