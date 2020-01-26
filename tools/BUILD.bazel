@@ -43,10 +43,17 @@ pkg_tar(
     package_dir = "etc",
 )
 
+container_pull(
+    name = "arm64_cc_image_base",
+    registry = "docker.io",
+    repository = "suburbandad/distroless-debian9",
+    digest = DIGESTS["latest"],
+)
+
 # Include it in our base image as a tar.
 container_image(
     name = "cc_image",
-    base = "@cc_image_base//image",
+    base = "@arm64_cc_image_base//image",
     tars = [":passwd_tar"],
     user = "root",
     visibility = ["//visibility:public"],
