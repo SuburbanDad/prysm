@@ -39,7 +39,7 @@ go_image(
     base = "//tools:cc_image",
     goarch = "arm64",
     goos = "linux",
-    importpath = "github.com/prysmaticlabs/prysm/beacon-chain",
+    importpath = "github.com/garyschulte/prysm/beacon-chain",
     race = "off",
     static = "off",  # Static enabled binary seems to cause issues with DNS lookup with cgo.
     tags = ["manual"],
@@ -65,8 +65,8 @@ go_image(
 container_bundle(
     name = "image_bundle",
     images = {
-        "gcr.io/prysmaticlabs/prysm/beacon-chain:latest": ":image",
-        "gcr.io/prysmaticlabs/prysm/beacon-chain:{DOCKER_TAG}": ":image",
+        "dockerhub.io/suburbandad/beacon-chain:latest": ":image",
+        "dockerhub.io/prysm/beacon-chain:{DOCKER_TAG}": ":image",
     },
     tags = ["manual"],
 )
