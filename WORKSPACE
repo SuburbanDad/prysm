@@ -78,6 +78,24 @@ load(
 
 container_repositories()
 
+load(
+    "@io_bazel_rules_docker//container:container.bzl",
+    "container_pull",
+)
+
+container_pull(
+    name = "arm64_cc_image_base",
+    architecture = "arm64",
+    registry = "docker.io",
+    repository = "suburbandad/distroless-debian9",
+    tag = "latest",
+)
+
+load(
+    "@io_bazel_rules_docker//container:container.bzl",
+    "container_pull",
+)
+
 load("@io_bazel_rules_go//go:deps.bzl", "go_register_toolchains", "go_rules_dependencies")
 
 go_rules_dependencies()
