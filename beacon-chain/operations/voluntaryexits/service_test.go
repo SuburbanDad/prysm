@@ -7,6 +7,8 @@ import (
 
 	"github.com/gogo/protobuf/proto"
 	ethpb "github.com/prysmaticlabs/ethereumapis/eth/v1alpha1"
+	beaconstate "github.com/prysmaticlabs/prysm/beacon-chain/state"
+	p2ppb "github.com/prysmaticlabs/prysm/proto/beacon/p2p/v1"
 	"github.com/prysmaticlabs/prysm/shared/params"
 )
 
@@ -211,7 +213,11 @@ func TestPool_InsertVoluntaryExit(t *testing.T) {
 				pending:  tt.fields.pending,
 				included: tt.fields.included,
 			}
-			p.InsertVoluntaryExit(ctx, validators, tt.args.exit)
+			s, err := beaconstate.InitializeFromProtoUnsafe(&p2ppb.BeaconState{Validators: validators})
+			if err != nil {
+				t.Fatal(err)
+			}
+			p.InsertVoluntaryExit(ctx, s, tt.args.exit)
 			if len(p.pending) != len(tt.want) {
 				t.Fatalf("Mismatched lengths of pending list. Got %d, wanted %d.", len(p.pending), len(tt.want))
 			}
@@ -371,6 +377,54 @@ func TestPool_PendingExits(t *testing.T) {
 			},
 		},
 		{
+			name: "All eligible, more than max",
+			fields: fields{
+				pending: []*ethpb.SignedVoluntaryExit{
+					{Exit: &ethpb.VoluntaryExit{Epoch: 0}},
+					{Exit: &ethpb.VoluntaryExit{Epoch: 1}},
+					{Exit: &ethpb.VoluntaryExit{Epoch: 2}},
+					{Exit: &ethpb.VoluntaryExit{Epoch: 3}},
+					{Exit: &ethpb.VoluntaryExit{Epoch: 4}},
+					{Exit: &ethpb.VoluntaryExit{Epoch: 5}},
+					{Exit: &ethpb.VoluntaryExit{Epoch: 6}},
+					{Exit: &ethpb.VoluntaryExit{Epoch: 7}},
+					{Exit: &ethpb.VoluntaryExit{Epoch: 8}},
+					{Exit: &ethpb.VoluntaryExit{Epoch: 9}},
+					{Exit: &ethpb.VoluntaryExit{Epoch: 10}},
+					{Exit: &ethpb.VoluntaryExit{Epoch: 11}},
+					{Exit: &ethpb.VoluntaryExit{Epoch: 12}},
+					{Exit: &ethpb.VoluntaryExit{Epoch: 13}},
+					{Exit: &ethpb.VoluntaryExit{Epoch: 14}},
+					{Exit: &ethpb.VoluntaryExit{Epoch: 15}},
+					{Exit: &ethpb.VoluntaryExit{Epoch: 16}},
+					{Exit: &ethpb.VoluntaryExit{Epoch: 17}},
+					{Exit: &ethpb.VoluntaryExit{Epoch: 18}},
+					{Exit: &ethpb.VoluntaryExit{Epoch: 19}},
+				},
+			},
+			args: args{
+				slot: 1000000,
+			},
+			want: []*ethpb.SignedVoluntaryExit{
+				{Exit: &ethpb.VoluntaryExit{Epoch: 0}},
+				{Exit: &ethpb.VoluntaryExit{Epoch: 1}},
+				{Exit: &ethpb.VoluntaryExit{Epoch: 2}},
+				{Exit: &ethpb.VoluntaryExit{Epoch: 3}},
+				{Exit: &ethpb.VoluntaryExit{Epoch: 4}},
+				{Exit: &ethpb.VoluntaryExit{Epoch: 5}},
+				{Exit: &ethpb.VoluntaryExit{Epoch: 6}},
+				{Exit: &ethpb.VoluntaryExit{Epoch: 7}},
+				{Exit: &ethpb.VoluntaryExit{Epoch: 8}},
+				{Exit: &ethpb.VoluntaryExit{Epoch: 9}},
+				{Exit: &ethpb.VoluntaryExit{Epoch: 10}},
+				{Exit: &ethpb.VoluntaryExit{Epoch: 11}},
+				{Exit: &ethpb.VoluntaryExit{Epoch: 12}},
+				{Exit: &ethpb.VoluntaryExit{Epoch: 13}},
+				{Exit: &ethpb.VoluntaryExit{Epoch: 14}},
+				{Exit: &ethpb.VoluntaryExit{Epoch: 15}},
+			},
+		},
+		{
 			name: "Some eligible",
 			fields: fields{
 				pending: []*ethpb.SignedVoluntaryExit{
@@ -396,7 +450,11 @@ func TestPool_PendingExits(t *testing.T) {
 			p := &Pool{
 				pending: tt.fields.pending,
 			}
-			if got := p.PendingExits(tt.args.slot); !reflect.DeepEqual(got, tt.want) {
+			s, err := beaconstate.InitializeFromProtoUnsafe(&p2ppb.BeaconState{Validators: []*ethpb.Validator{{ExitEpoch: params.BeaconConfig().FarFutureEpoch}}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := p.PendingExits(s, tt.args.slot); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("PendingExits() = %v, want %v", got, tt.want)
 			}
 		})

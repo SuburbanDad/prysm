@@ -12,6 +12,9 @@ import (
 // before getting pruned upon new finalization.
 const defaultPruneThreshold = 256
 
+// This tracks the last reported head root. Used for metrics.
+var lastHeadRoot [32]byte
+
 // New initializes a new fork choice store.
 func New(justifiedEpoch uint64, finalizedEpoch uint64, finalizedRoot [32]byte) *ForkChoice {
 	s := &Store{
@@ -34,9 +37,14 @@ func New(justifiedEpoch uint64, finalizedEpoch uint64, finalizedRoot [32]byte) *
 func (f *ForkChoice) Head(ctx context.Context, finalizedEpoch uint64, justifiedRoot [32]byte, justifiedStateBalances []uint64, justifiedEpoch uint64) ([32]byte, error) {
 	ctx, span := trace.StartSpan(ctx, "protoArrayForkChoice.Head")
 	defer span.End()
+	calledHeadCount.Inc()
 
 	newBalances := justifiedStateBalances
 
+	// Using the read lock is ok here, rest of the operations below is read only.
+	// The only time it writes to node indices is inserting and pruning blocks from the store.
+	f.store.nodeIndicesLock.RLock()
+	defer f.store.nodeIndicesLock.RUnlock()
 	deltas, newVotes, err := computeDeltas(ctx, f.store.nodeIndices, f.votes, f.balances, newBalances)
 	if err != nil {
 		return [32]byte{}, errors.Wrap(err, "Could not compute deltas")
@@ -73,6 +81,8 @@ func (f *ForkChoice) ProcessAttestation(ctx context.Context, validatorIndices []
 			f.votes[index].nextRoot = blockRoot
 		}
 	}
+
+	processedAttestationCount.Inc()
 }
 
 // ProcessBlock processes a new block by inserting it to the fork choice store.
@@ -87,4 +97,21 @@ func (f *ForkChoice) ProcessBlock(ctx context.Context, slot uint64, blockRoot [3
 // root is different than the current store finalized root, and the number of the store has met prune threshold.
 func (f *ForkChoice) Prune(ctx context.Context, finalizedRoot [32]byte) error {
 	return f.store.prune(ctx, finalizedRoot)
+}
+
+// Nodes returns the copied list of block nodes in the fork choice store.
+func (f *ForkChoice) Nodes() []*Node {
+	cpy := make([]*Node, len(f.store.nodes))
+	copy(cpy, f.store.nodes)
+	return cpy
+}
+
+// HasNode returns true if the node exists in fork choice store,
+// false else wise.
+func (f *ForkChoice) HasNode(root [32]byte) bool {
+	f.store.nodeIndicesLock.RLock()
+	defer f.store.nodeIndicesLock.RUnlock()
+
+	_, ok := f.store.nodeIndices[root]
+	return ok
 }

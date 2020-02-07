@@ -9,6 +9,7 @@ import (
 	"github.com/pkg/errors"
 	ethpb "github.com/prysmaticlabs/ethereumapis/eth/v1alpha1"
 	"github.com/prysmaticlabs/go-ssz"
+	"github.com/prysmaticlabs/prysm/beacon-chain/blockchain/metrics"
 	"github.com/prysmaticlabs/prysm/beacon-chain/core/epoch/precompute"
 	"github.com/prysmaticlabs/prysm/beacon-chain/core/feed"
 	statefeed "github.com/prysmaticlabs/prysm/beacon-chain/core/feed/state"
@@ -55,7 +56,6 @@ func (s *Service) ReceiveBlock(ctx context.Context, block *ethpb.SignedBeaconBlo
 		return err
 	}
 
-	processedBlk.Inc()
 	return nil
 }
 
@@ -70,26 +70,64 @@ func (s *Service) ReceiveBlockNoPubsub(ctx context.Context, block *ethpb.SignedB
 	blockCopy := proto.Clone(block).(*ethpb.SignedBeaconBlock)
 
 	// Apply state transition on the new block.
-	if err := s.forkChoiceStore.OnBlockCacheFilteredTree(ctx, blockCopy); err != nil {
-		err := errors.Wrap(err, "could not process block from fork choice service")
+	postState, err := s.onBlock(ctx, blockCopy)
+	if err != nil {
+		err := errors.Wrap(err, "could not process block")
 		traceutil.AnnotateError(span, err)
 		return err
 	}
+
 	root, err := ssz.HashTreeRoot(blockCopy.Block)
 	if err != nil {
 		return errors.Wrap(err, "could not get signing root on received block")
 	}
 
-	if featureconfig.Get().DisableForkChoice {
+	// Send notification of the processed block to the state feed.
+	s.stateNotifier.StateFeed().Send(&feed.Event{
+		Type: statefeed.BlockProcessed,
+		Data: &statefeed.BlockProcessedData{
+			BlockRoot: root,
+			Verified:  true,
+		},
+	})
+
+	// Add attestations from the block to the pool for fork choice.
+	if err := s.attPool.SaveBlockAttestations(blockCopy.Block.Body.Attestations); err != nil {
+		log.Errorf("Could not save attestation for fork choice: %v", err)
+		return nil
+	}
+	for _, exit := range block.Block.Body.VoluntaryExits {
+		s.exitPool.MarkIncluded(exit)
+	}
+
+	s.epochParticipationLock.Lock()
+	defer s.epochParticipationLock.Unlock()
+	s.epochParticipation[helpers.SlotToEpoch(blockCopy.Block.Slot)] = precompute.Balances
+
+	if featureconfig.Get().DisableForkChoice && block.Block.Slot > s.headSlot {
 		if err := s.saveHead(ctx, blockCopy, root); err != nil {
 			return errors.Wrap(err, "could not save head")
 		}
 	} else {
-		// Run fork choice after applying state transition on the new block.
-		headRoot, err := s.forkChoiceStore.Head(ctx)
-		if err != nil {
-			return errors.Wrap(err, "could not get head from fork choice service")
+		headRoot := make([]byte, 0)
+		if s.bestJustifiedCheckpt.Epoch > s.justifiedCheckpt.Epoch {
+			s.justifiedCheckpt = s.bestJustifiedCheckpt
 		}
+
+		f := s.finalizedCheckpt
+		j := s.justifiedCheckpt
+		headRootProtoArray, err := s.forkChoiceStore.Head(
+			ctx,
+			f.Epoch,
+			bytesutil.ToBytes32(j.Root),
+			postState.Balances(),
+			j.Epoch)
+		if err != nil {
+			log.Warnf("Skip head update for slot %d: %v", block.Block.Slot, err)
+			return nil
+		}
+
+		headRoot = headRootProtoArray[:]
 
 		// Only save head if it's different than the current head.
 		cachedHeadRoot, err := s.HeadRoot(ctx)
@@ -111,35 +149,11 @@ func (s *Service) ReceiveBlockNoPubsub(ctx context.Context, block *ethpb.SignedB
 		}
 	}
 
-	// Send notification of the processed block to the state feed.
-	s.stateNotifier.StateFeed().Send(&feed.Event{
-		Type: statefeed.BlockProcessed,
-		Data: &statefeed.BlockProcessedData{
-			BlockRoot: root,
-			Verified:  true,
-		},
-	})
-
-	// Add attestations from the block to the pool for fork choice.
-	if err := s.attPool.SaveBlockAttestations(blockCopy.Block.Body.Attestations); err != nil {
-		log.Errorf("Could not save attestation for fork choice: %v", err)
-		return nil
-	}
-	for _, exit := range block.Block.Body.VoluntaryExits {
-		s.exitPool.MarkIncluded(exit)
-	}
-
 	// Reports on block and fork choice metrics.
-	s.reportSlotMetrics(blockCopy.Block.Slot)
+	metrics.ReportSlotMetrics(blockCopy.Block.Slot, s.headSlot, s.headState)
 
 	// Log state transition data.
 	logStateTransitionData(blockCopy.Block)
-
-	s.epochParticipationLock.Lock()
-	defer s.epochParticipationLock.Unlock()
-	s.epochParticipation[helpers.SlotToEpoch(blockCopy.Block.Slot)] = precompute.Balances
-
-	processedBlkNoPubsub.Inc()
 
 	return nil
 }
@@ -153,12 +167,14 @@ func (s *Service) ReceiveBlockNoPubsubForkchoice(ctx context.Context, block *eth
 	defer span.End()
 	blockCopy := proto.Clone(block).(*ethpb.SignedBeaconBlock)
 
-	// Apply state transition on the incoming newly received block.
-	if err := s.forkChoiceStore.OnBlock(ctx, blockCopy); err != nil {
-		err := errors.Wrap(err, "could not process block from fork choice service")
+	// Apply state transition on the new block.
+	_, err := s.onBlock(ctx, blockCopy)
+	if err != nil {
+		err := errors.Wrap(err, "could not process block")
 		traceutil.AnnotateError(span, err)
 		return err
 	}
+
 	root, err := ssz.HashTreeRoot(blockCopy.Block)
 	if err != nil {
 		return errors.Wrap(err, "could not get signing root on received block")
@@ -183,7 +199,7 @@ func (s *Service) ReceiveBlockNoPubsubForkchoice(ctx context.Context, block *eth
 	})
 
 	// Reports on block and fork choice metrics.
-	s.reportSlotMetrics(blockCopy.Block.Slot)
+	metrics.ReportSlotMetrics(blockCopy.Block.Slot, s.headSlot, s.headState)
 
 	// Log state transition data.
 	logStateTransitionData(blockCopy.Block)
@@ -192,7 +208,6 @@ func (s *Service) ReceiveBlockNoPubsubForkchoice(ctx context.Context, block *eth
 	defer s.epochParticipationLock.Unlock()
 	s.epochParticipation[helpers.SlotToEpoch(blockCopy.Block.Slot)] = precompute.Balances
 
-	processedBlkNoPubsubForkchoice.Inc()
 	return nil
 }
 
@@ -205,9 +220,12 @@ func (s *Service) ReceiveBlockNoVerify(ctx context.Context, block *ethpb.SignedB
 	blockCopy := proto.Clone(block).(*ethpb.SignedBeaconBlock)
 
 	// Apply state transition on the incoming newly received blockCopy without verifying its BLS contents.
-	if err := s.forkChoiceStore.OnBlockInitialSyncStateTransition(ctx, blockCopy); err != nil {
-		return errors.Wrap(err, "could not process blockCopy from fork choice service")
+	if err := s.onBlockInitialSyncStateTransition(ctx, blockCopy); err != nil {
+		err := errors.Wrap(err, "could not process block")
+		traceutil.AnnotateError(span, err)
+		return err
 	}
+
 	root, err := ssz.HashTreeRoot(blockCopy.Block)
 	if err != nil {
 		return errors.Wrap(err, "could not get signing root on received blockCopy")
@@ -246,7 +264,7 @@ func (s *Service) ReceiveBlockNoVerify(ctx context.Context, block *ethpb.SignedB
 	})
 
 	// Reports on blockCopy and fork choice metrics.
-	s.reportSlotMetrics(blockCopy.Block.Slot)
+	metrics.ReportSlotMetrics(blockCopy.Block.Slot, s.headSlot, s.headState)
 
 	// Log state transition data.
 	log.WithFields(logrus.Fields{
@@ -271,6 +289,6 @@ func isCompetingBlock(root []byte, slot uint64, headRoot []byte, headSlot uint64
 			"headSlot": headSlot,
 			"headRoot": hex.EncodeToString(headRoot),
 		}).Warn("Calculated head diffs from new block")
-		competingBlks.Inc()
+		metrics.CompetingBlks.Inc()
 	}
 }

@@ -37,6 +37,7 @@ type validator struct {
 	keyManager           keymanager.KeyManager
 	prevBalance          map[[48]byte]uint64
 	logValidatorBalances bool
+	emitAccountMetrics   bool
 	attLogs              map[[32]byte]*attSubmitted
 	attLogsLock          sync.Mutex
 }
@@ -175,7 +176,7 @@ func (v *validator) checkAndLogValidatorStatus(validatorStatuses []*ethpb.Valida
 			log.Info("Validator exited")
 			continue
 		}
-		if status.Status.Status == ethpb.ValidatorStatus_DEPOSIT_RECEIVED {
+		if status.Status.Status == ethpb.ValidatorStatus_DEPOSITED {
 			log.WithField("expectedInclusionSlot", status.Status.DepositInclusionSlot).Info(
 				"Deposit for validator received but not processed into state")
 			continue
@@ -286,7 +287,7 @@ func (v *validator) RolesAt(ctx context.Context, slot uint64) (map[[48]byte][]pb
 		if duty == nil {
 			continue
 		}
-		if duty.ProposerSlot == slot {
+		if duty.ProposerSlot > 0 && duty.ProposerSlot == slot {
 			roles = append(roles, pb.ValidatorRole_PROPOSER)
 		}
 		if duty.AttesterSlot == slot {

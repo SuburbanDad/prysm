@@ -50,34 +50,31 @@ const (
 	Attestation
 )
 
+// String returns the string representation of the status SlashingType .
 func (status SlashingType) String() string {
 	names := [...]string{
 		"Proposal",
-		"Attestation"}
+		"Attestation",
+	}
 
 	if status < Active || status > Reverted {
 		return "Unknown"
 	}
-	// return the name of a SlashingType
-	// constant from the names array
-	// above.
 	return names[status]
 }
 
-func createProposerSlashing(enc []byte) (*ethpb.ProposerSlashing, error) {
+func unmarshalProposerSlashing(enc []byte) (*ethpb.ProposerSlashing, error) {
 	protoSlashing := &ethpb.ProposerSlashing{}
-
-	err := proto.Unmarshal(enc, protoSlashing)
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to unmarshal encoding")
+	if err := proto.Unmarshal(enc, protoSlashing); err != nil {
+		return nil, errors.Wrap(err, "failed to unmarshal encoded proposer slashing")
 	}
 	return protoSlashing, nil
 }
 
-func toProposerSlashings(encoded [][]byte) ([]*ethpb.ProposerSlashing, error) {
+func unmarshalProposerSlashingArray(encoded [][]byte) ([]*ethpb.ProposerSlashing, error) {
 	proposerSlashings := make([]*ethpb.ProposerSlashing, len(encoded))
 	for i, enc := range encoded {
-		ps, err := createProposerSlashing(enc)
+		ps, err := unmarshalProposerSlashing(enc)
 		if err != nil {
 			return nil, err
 		}
@@ -102,7 +99,7 @@ func (db *Store) ProposalSlashingsByStatus(status SlashingStatus) ([]*ethpb.Prop
 	if err != nil {
 		return nil, err
 	}
-	return toProposerSlashings(encoded)
+	return unmarshalProposerSlashingArray(encoded)
 }
 
 // DeleteProposerSlashing deletes a proposer slashing proof.
@@ -114,9 +111,6 @@ func (db *Store) DeleteProposerSlashing(slashing *ethpb.ProposerSlashing) error 
 	err = db.update(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket(slashingBucket)
 		k := encodeTypeRoot(SlashingType(Proposal), root)
-		if err != nil {
-			return errors.Wrap(err, "failed to get key for for attester slashing.")
-		}
 		if err := bucket.Delete(k); err != nil {
 			return errors.Wrap(err, "failed to delete the slashing proof from slashing bucket")
 		}
@@ -127,13 +121,14 @@ func (db *Store) DeleteProposerSlashing(slashing *ethpb.ProposerSlashing) error 
 
 // HasProposerSlashing returns the slashing key if it is found in db.
 func (db *Store) HasProposerSlashing(slashing *ethpb.ProposerSlashing) (bool, SlashingStatus, error) {
-	root, err := hashutil.HashProto(slashing)
-	key := encodeTypeRoot(SlashingType(Proposal), root)
 	var status SlashingStatus
 	var found bool
+	root, err := hashutil.HashProto(slashing)
 	if err != nil {
 		return found, status, errors.Wrap(err, "failed to get hash root of proposerSlashing")
 	}
+	key := encodeTypeRoot(SlashingType(Proposal), root)
+
 	err = db.view(func(tx *bolt.Tx) error {
 		b := tx.Bucket(slashingBucket)
 		enc := b.Get(key)
@@ -154,16 +149,35 @@ func (db *Store) SaveProposerSlashing(status SlashingStatus, slashing *ethpb.Pro
 	}
 	root := hashutil.Hash(enc)
 	key := encodeTypeRoot(SlashingType(Proposal), root)
-	err = db.update(func(tx *bolt.Tx) error {
+	return db.update(func(tx *bolt.Tx) error {
 		b := tx.Bucket(slashingBucket)
 		e := b.Put(key, append([]byte{byte(status)}, enc...))
-		if e != nil {
-			return nil
-		}
-		return err
+		return e
 	})
-	if err != nil {
-		return err
+}
+
+// SaveProposerSlashings accepts a slice of slashing proof and its status and writes it to disk.
+func (db *Store) SaveProposerSlashings(status SlashingStatus, slashings []*ethpb.ProposerSlashing) error {
+	encSlashings := make([][]byte, len(slashings))
+	keys := make([][]byte, len(slashings))
+	var err error
+	for i, slashing := range slashings {
+		encSlashings[i], err = proto.Marshal(slashing)
+		if err != nil {
+			return errors.Wrap(err, "failed to marshal")
+		}
+		root := hashutil.Hash(encSlashings[i])
+		keys[i] = encodeTypeRoot(SlashingType(Proposal), root)
 	}
-	return err
+
+	return db.update(func(tx *bolt.Tx) error {
+		b := tx.Bucket(slashingBucket)
+		for i := 0; i < len(keys); i++ {
+			err := b.Put(keys[i], append([]byte{byte(status)}, encSlashings[i]...))
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }

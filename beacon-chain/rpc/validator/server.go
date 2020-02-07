@@ -10,6 +10,7 @@ import (
 	"github.com/prysmaticlabs/prysm/beacon-chain/cache"
 	"github.com/prysmaticlabs/prysm/beacon-chain/cache/depositcache"
 	"github.com/prysmaticlabs/prysm/beacon-chain/core/feed"
+	blockfeed "github.com/prysmaticlabs/prysm/beacon-chain/core/feed/block"
 	opfeed "github.com/prysmaticlabs/prysm/beacon-chain/core/feed/operation"
 	statefeed "github.com/prysmaticlabs/prysm/beacon-chain/core/feed/state"
 	"github.com/prysmaticlabs/prysm/beacon-chain/core/helpers"
@@ -38,7 +39,7 @@ func init() {
 // and more.
 type Server struct {
 	Ctx                    context.Context
-	BeaconDB               db.ReadOnlyDatabase
+	BeaconDB               db.NoHeadAccessDatabase
 	AttestationCache       *cache.AttestationCache
 	HeadFetcher            blockchain.HeadFetcher
 	ForkFetcher            blockchain.ForkFetcher
@@ -50,6 +51,7 @@ type Server struct {
 	Eth1InfoFetcher        powchain.ChainInfoFetcher
 	SyncChecker            sync.Checker
 	StateNotifier          statefeed.Notifier
+	BlockNotifier          blockfeed.Notifier
 	P2P                    p2p.Broadcaster
 	AttPool                attestations.Pool
 	ExitPool               *voluntaryexits.Pool
@@ -130,9 +132,7 @@ func (vs *Server) ExitedValidators(
 	exitedKeys := make([][]byte, 0)
 	for _, st := range statuses {
 		s := st.Status.Status
-		if s == ethpb.ValidatorStatus_EXITED ||
-			s == ethpb.ValidatorStatus_EXITED_SLASHED ||
-			s == ethpb.ValidatorStatus_INITIATED_EXIT {
+		if s == ethpb.ValidatorStatus_EXITED {
 			exitedKeys = append(exitedKeys, st.PublicKey)
 		}
 	}
@@ -171,7 +171,7 @@ func (vs *Server) WaitForChainStart(req *ptypes.Empty, stream ethpb.BeaconNodeVa
 	if head != nil {
 		res := &ethpb.ChainStartResponse{
 			Started:     true,
-			GenesisTime: head.GenesisTime,
+			GenesisTime: head.GenesisTime(),
 		}
 		return stream.Send(res)
 	}

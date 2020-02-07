@@ -7,10 +7,11 @@ import (
 	"github.com/gogo/protobuf/proto"
 	"github.com/pkg/errors"
 	ethpb "github.com/prysmaticlabs/ethereumapis/eth/v1alpha1"
+	"github.com/prysmaticlabs/prysm/shared/bytesutil"
 	"github.com/prysmaticlabs/prysm/shared/hashutil"
 )
 
-func createAttesterSlashing(enc []byte) (*ethpb.AttesterSlashing, error) {
+func unmarshalAttSlashing(enc []byte) (*ethpb.AttesterSlashing, error) {
 	protoSlashing := &ethpb.AttesterSlashing{}
 	err := proto.Unmarshal(enc, protoSlashing)
 	if err != nil {
@@ -19,10 +20,10 @@ func createAttesterSlashing(enc []byte) (*ethpb.AttesterSlashing, error) {
 	return protoSlashing, nil
 }
 
-func toAttesterSlashings(encoded [][]byte) ([]*ethpb.AttesterSlashing, error) {
+func unmarshalAttSlashings(encoded [][]byte) ([]*ethpb.AttesterSlashing, error) {
 	attesterSlashings := make([]*ethpb.AttesterSlashing, len(encoded))
 	for i, enc := range encoded {
-		ps, err := createAttesterSlashing(enc)
+		ps, err := unmarshalAttSlashing(enc)
 		if err != nil {
 			return nil, err
 		}
@@ -48,7 +49,7 @@ func (db *Store) AttesterSlashings(status SlashingStatus) ([]*ethpb.AttesterSlas
 	if err != nil {
 		return nil, err
 	}
-	return toAttesterSlashings(encoded)
+	return unmarshalAttSlashings(encoded)
 }
 
 // DeleteAttesterSlashing deletes an attester slashing proof from db.
@@ -70,15 +71,15 @@ func (db *Store) DeleteAttesterSlashing(attesterSlashing *ethpb.AttesterSlashing
 	})
 }
 
-// HasAttesterSlashing returns true and slashing status if slashing is found in db.
+// HasAttesterSlashing returns true and slashing status if a slashing is found in the db.
 func (db *Store) HasAttesterSlashing(slashing *ethpb.AttesterSlashing) (bool, SlashingStatus, error) {
-	root, err := hashutil.HashProto(slashing)
 	var status SlashingStatus
 	var found bool
-	key := encodeTypeRoot(SlashingType(Attestation), root)
+	root, err := hashutil.HashProto(slashing)
 	if err != nil {
 		return found, status, errors.Wrap(err, "failed to get hash root of attesterSlashing")
 	}
+	key := encodeTypeRoot(SlashingType(Attestation), root)
 	err = db.view(func(tx *bolt.Tx) error {
 		b := tx.Bucket(slashingBucket)
 		enc := b.Get(key)
@@ -99,16 +100,60 @@ func (db *Store) SaveAttesterSlashing(status SlashingStatus, slashing *ethpb.Att
 	}
 	root := hashutil.Hash(enc)
 	key := encodeTypeRoot(SlashingType(Attestation), root)
-	err = db.update(func(tx *bolt.Tx) error {
+	return db.update(func(tx *bolt.Tx) error {
 		b := tx.Bucket(slashingBucket)
 		e := b.Put(key, append([]byte{byte(status)}, enc...))
-		if e != nil {
+		return e
+	})
+}
+
+// SaveAttesterSlashings accepts a slice of slashing proof and its status and writes it to disk.
+func (db *Store) SaveAttesterSlashings(status SlashingStatus, slashings []*ethpb.AttesterSlashing) error {
+	enc := make([][]byte, len(slashings))
+	key := make([][]byte, len(slashings))
+	var err error
+	for i, slashing := range slashings {
+		enc[i], err = proto.Marshal(slashing)
+		if err != nil {
+			return errors.Wrap(err, "failed to marshal")
+		}
+		encHash := hashutil.Hash(enc[i])
+		key[i] = encodeTypeRoot(SlashingType(Attestation), encHash)
+	}
+
+	return db.update(func(tx *bolt.Tx) error {
+		b := tx.Bucket(slashingBucket)
+		for i := 0; i < len(enc); i++ {
+			e := b.Put(key[i], append([]byte{byte(status)}, enc[i]...))
+			if e != nil {
+				return e
+			}
+		}
+		return nil
+	})
+}
+
+// GetLatestEpochDetected returns the latest detected epoch from db.
+func (db *Store) GetLatestEpochDetected() (uint64, error) {
+	var epoch uint64
+	err := db.view(func(tx *bolt.Tx) error {
+		b := tx.Bucket(slashingBucket)
+		enc := b.Get([]byte(latestEpochKey))
+		if enc == nil {
+			epoch = 0
 			return nil
 		}
+		epoch = bytesutil.FromBytes8(enc)
+		return nil
+	})
+	return epoch, err
+}
+
+// SetLatestEpochDetected sets the latest slashing detected epoch in db.
+func (db *Store) SetLatestEpochDetected(epoch uint64) error {
+	return db.update(func(tx *bolt.Tx) error {
+		b := tx.Bucket(slashingBucket)
+		err := b.Put([]byte(latestEpochKey), bytesutil.Bytes8(epoch))
 		return err
 	})
-	if err != nil {
-		return err
-	}
-	return err
 }

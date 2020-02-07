@@ -9,6 +9,8 @@ import (
 	"github.com/prysmaticlabs/go-bitfield"
 	"github.com/prysmaticlabs/go-ssz"
 	"github.com/prysmaticlabs/prysm/beacon-chain/core/helpers"
+	stateTrie "github.com/prysmaticlabs/prysm/beacon-chain/state"
+	"github.com/prysmaticlabs/prysm/shared/featureconfig"
 	"github.com/prysmaticlabs/prysm/shared/hashutil"
 	"github.com/prysmaticlabs/prysm/shared/params"
 	"go.opencensus.io/trace"
@@ -48,24 +50,31 @@ func (s *Service) batchForkChoiceAtts(ctx context.Context) error {
 	atts = append(atts, s.pool.BlockAttestations()...)
 	atts = append(atts, s.pool.ForkchoiceAttestations()...)
 
-	for _, att := range atts {
-		seen, err := s.seen(att)
-		if err != nil {
-			return err
-		}
-		if seen {
-			continue
+	// Consolidate attestations by aggregating them by similar data root.
+	if featureconfig.Get().ForkchoiceAggregateAttestations {
+		for _, att := range atts {
+			seen, err := s.seen(att)
+			if err != nil {
+				return err
+			}
+			if seen {
+				continue
+			}
+
+			attDataRoot, err := ssz.HashTreeRoot(att.Data)
+			if err != nil {
+				return err
+			}
+			attsByDataRoot[attDataRoot] = append(attsByDataRoot[attDataRoot], att)
 		}
 
-		attDataRoot, err := ssz.HashTreeRoot(att.Data)
-		if err != nil {
-			return err
+		for _, atts := range attsByDataRoot {
+			if err := s.aggregateAndSaveForkChoiceAtts(atts); err != nil {
+				return err
+			}
 		}
-		attsByDataRoot[attDataRoot] = append(attsByDataRoot[attDataRoot], att)
-	}
-
-	for _, atts := range attsByDataRoot {
-		if err := s.aggregateAndSaveForkChoiceAtts(atts); err != nil {
+	} else {
+		if err := s.pool.SaveForkchoiceAttestations(atts); err != nil {
 			return err
 		}
 	}
@@ -82,7 +91,11 @@ func (s *Service) batchForkChoiceAtts(ctx context.Context) error {
 // This aggregates a list of attestations using the aggregation algorithm defined in AggregateAttestations
 // and saves the attestations for fork choice.
 func (s *Service) aggregateAndSaveForkChoiceAtts(atts []*ethpb.Attestation) error {
-	aggregatedAtts, err := helpers.AggregateAttestations(atts)
+	clonedAtts := make([]*ethpb.Attestation, len(atts))
+	for i, a := range atts {
+		clonedAtts[i] = stateTrie.CopyAttestation(a)
+	}
+	aggregatedAtts, err := helpers.AggregateAttestations(clonedAtts)
 	if err != nil {
 		return err
 	}
@@ -101,17 +114,23 @@ func (s *Service) seen(att *ethpb.Attestation) (bool, error) {
 	if err != nil {
 		return false, err
 	}
+	incomingBits := att.AggregationBits
 	savedBits, ok := s.forkChoiceProcessedRoots.Get(string(attRoot[:]))
 	if ok {
 		savedBitlist, ok := savedBits.(bitfield.Bitlist)
 		if !ok {
 			return false, errors.New("not a bit field")
 		}
-		if savedBitlist.Overlaps(att.AggregationBits) {
-			return true, nil
+		if savedBitlist.Len() == incomingBits.Len() {
+			// Returns true if the node has seen all the bits in the new bit field of the incoming attestation.
+			if savedBitlist.Contains(incomingBits) {
+				return true, nil
+			}
+			// Update the bit fields by Or'ing them with the new ones.
+			incomingBits = incomingBits.Or(savedBitlist)
 		}
 	}
 
-	s.forkChoiceProcessedRoots.Set(string(attRoot[:]), att.AggregationBits, 1 /*cost*/)
+	s.forkChoiceProcessedRoots.Set(string(attRoot[:]), incomingBits, 1 /*cost*/)
 	return false, nil
 }

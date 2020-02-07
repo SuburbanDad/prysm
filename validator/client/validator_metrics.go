@@ -3,9 +3,10 @@ package client
 import (
 	"context"
 	"fmt"
-	ethpb "github.com/prysmaticlabs/ethereumapis/eth/v1alpha1"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
+	ethpb "github.com/prysmaticlabs/ethereumapis/eth/v1alpha1"
 	"github.com/prysmaticlabs/prysm/shared/bytesutil"
 	"github.com/prysmaticlabs/prysm/shared/params"
 	"github.com/sirupsen/logrus"
@@ -19,7 +20,8 @@ var validatorBalancesGaugeVec = promauto.NewGaugeVec(
 	},
 	[]string{
 		// validator pubkey
-		"pkey"},
+		"pkey",
+	},
 )
 
 // LogValidatorGainsAndLosses logs important metrics related to this validator client's
@@ -60,6 +62,9 @@ func (v *validator) LogValidatorGainsAndLosses(ctx context.Context, slot uint64)
 		log := log.WithField("pubKey", pubKey)
 		if missingValidators[bytesutil.ToBytes48(pkey)] {
 			log.Info("Validator not in beacon chain")
+			if v.emitAccountMetrics {
+				validatorBalancesGaugeVec.WithLabelValues(pubKey).Set(0)
+			}
 			continue
 		}
 		if slot < params.BeaconConfig().SlotsPerEpoch {
@@ -76,7 +81,10 @@ func (v *validator) LogValidatorGainsAndLosses(ctx context.Context, slot uint64)
 				"newBalance":    newBalance,
 				"percentChange": fmt.Sprintf("%.5f%%", percentNet*100),
 			}).Info("New Balance")
-			validatorBalancesGaugeVec.WithLabelValues(pubKey).Set(newBalance)
+			if v.emitAccountMetrics {
+				validatorBalancesGaugeVec.WithLabelValues(pubKey).Set(newBalance)
+			}
+
 		}
 		v.prevBalance[bytesutil.ToBytes48(pkey)] = resp.Balances[i]
 	}

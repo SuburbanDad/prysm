@@ -1,6 +1,7 @@
 package featureconfig
 
 import (
+	"github.com/prysmaticlabs/prysm/shared/params"
 	"github.com/urfave/cli"
 )
 
@@ -68,20 +69,16 @@ var (
 		Usage: "Enables connection to a slasher service in order to retrieve slashable events. Slasher is connected to the beacon node using gRPC and " +
 			"the slasher-provider flag can be used to pass its address.",
 	}
-	noGenesisDelayFlag = cli.BoolFlag{
-		Name: "no-genesis-delay",
-		Usage: "Start the genesis event right away using the eth1 block timestamp which " +
-			"triggered the genesis as the genesis time. This flag should be used for local " +
-			"development and testing only.",
+	customGenesisDelayFlag = cli.Uint64Flag{
+		Name: "custom-genesis-delay",
+		Usage: "Start the genesis event with the configured genesis delay in seconds. " +
+			"This flag should be used for local development and testing only.",
+		Value: params.BeaconConfig().MinGenesisDelay,
 	}
 	cacheFilteredBlockTreeFlag = cli.BoolFlag{
 		Name: "cache-filtered-block-tree",
 		Usage: "Cache filtered block tree by maintaining it rather than continually recalculating on the fly, " +
 			"this is used for fork choice.",
-	}
-	cacheProposerIndicesFlag = cli.BoolFlag{
-		Name:  "cache-proposer-indices",
-		Usage: "Cache proposer indices on per epoch basis.",
 	}
 	protectProposerFlag = cli.BoolFlag{
 		Name: "protect-proposer",
@@ -92,6 +89,14 @@ var (
 		Name: "protect-attester",
 		Usage: "Prevent the validator client from signing and broadcasting 2 any slashable attestations. " +
 			"Protects from slashing.",
+	}
+	forkchoiceAggregateAttestations = cli.BoolFlag{
+		Name:  "forkchoice-aggregate-attestations",
+		Usage: "Preprocess attestations by aggregation before running fork choice.",
+	}
+	disableStrictAttestationPubsubVerificationFlag = cli.BoolFlag{
+		Name: "disable-strict-attestation-pubsub-verification",
+		Usage: "Disable strict signature verification of attestations in pubsub. See PR 4782 for details.",
 	}
 )
 
@@ -180,6 +185,15 @@ var (
 		Usage:  deprecatedUsage,
 		Hidden: true,
 	}
+	deprecatedCacheProposerIndicesFlag = cli.BoolFlag{
+		Name:   "cache-proposer-indices",
+		Usage:  deprecatedUsage,
+		Hidden: true,
+	}
+	deprecatedprotoArrayForkChoice = cli.BoolFlag{
+		Name:   "proto-array-forkchoice",
+		Usage:  deprecatedUsage,
+		Hidden: true}
 )
 
 var deprecatedFlags = []cli.Flag{
@@ -199,6 +213,8 @@ var deprecatedFlags = []cli.Flag{
 	deprecatedNewCacheFlag,
 	deprecatedEnableShuffledIndexCacheFlag,
 	deprecatedSaveDepositDataFlag,
+	deprecatedCacheProposerIndicesFlag,
+	deprecatedprotoArrayForkChoice,
 }
 
 // ValidatorFlags contains a list of all the feature flags that apply to the validator client.
@@ -208,9 +224,15 @@ var ValidatorFlags = append(deprecatedFlags, []cli.Flag{
 	protectProposerFlag,
 }...)
 
+// E2EValidatorFlags contains a list of the validator feature flags to be tested in E2E.
+var E2EValidatorFlags = []string{
+	"--protect-attester",
+	"--protect-proposer",
+}
+
 // BeaconChainFlags contains a list of all the feature flags that apply to the beacon-chain client.
 var BeaconChainFlags = append(deprecatedFlags, []cli.Flag{
-	noGenesisDelayFlag,
+	customGenesisDelayFlag,
 	minimalConfigFlag,
 	writeSSZStateTransitionsFlag,
 	disableForkChoiceUnsafeFlag,
@@ -225,5 +247,18 @@ var BeaconChainFlags = append(deprecatedFlags, []cli.Flag{
 	enableSkipSlotsCacheFlag,
 	enableSlasherFlag,
 	cacheFilteredBlockTreeFlag,
-	cacheProposerIndicesFlag,
+	forkchoiceAggregateAttestations,
+	disableStrictAttestationPubsubVerificationFlag,
 }...)
+
+// E2EBeaconChainFlags contains a list of the beacon chain feature flags to be tested in E2E.
+var E2EBeaconChainFlags = []string{
+	"--enable-ssz-cache",
+	"--enable-attestation-cache",
+	"--cache-proposer-indices",
+	"--cache-filtered-block-tree",
+	"--enable-skip-slots-cache",
+	"--enable-eth1-data-vote-cache",
+	"--initial-sync-cache-state",
+	"--proto-array-forkchoice",
+}

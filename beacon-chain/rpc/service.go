@@ -16,6 +16,7 @@ import (
 	"github.com/prysmaticlabs/prysm/beacon-chain/blockchain"
 	"github.com/prysmaticlabs/prysm/beacon-chain/cache"
 	"github.com/prysmaticlabs/prysm/beacon-chain/cache/depositcache"
+	blockfeed "github.com/prysmaticlabs/prysm/beacon-chain/core/feed/block"
 	opfeed "github.com/prysmaticlabs/prysm/beacon-chain/core/feed/operation"
 	statefeed "github.com/prysmaticlabs/prysm/beacon-chain/core/feed/state"
 	"github.com/prysmaticlabs/prysm/beacon-chain/db"
@@ -53,12 +54,12 @@ func init() {
 type Service struct {
 	ctx                    context.Context
 	cancel                 context.CancelFunc
-	beaconDB               db.ReadOnlyDatabase
+	beaconDB               db.HeadAccessDatabase
 	headFetcher            blockchain.HeadFetcher
 	forkFetcher            blockchain.ForkFetcher
 	finalizationFetcher    blockchain.FinalizationFetcher
 	participationFetcher   blockchain.ParticipationFetcher
-	genesisTimeFetcher     blockchain.GenesisTimeFetcher
+	genesisTimeFetcher     blockchain.TimeFetcher
 	attestationReceiver    blockchain.AttestationReceiver
 	blockReceiver          blockchain.BlockReceiver
 	powChainService        powchain.Chain
@@ -81,6 +82,7 @@ type Service struct {
 	depositFetcher         depositcache.DepositFetcher
 	pendingDepositFetcher  depositcache.PendingDepositsFetcher
 	stateNotifier          statefeed.Notifier
+	blockNotifier          blockfeed.Notifier
 	operationNotifier      opfeed.Notifier
 	slasherConn            *grpc.ClientConn
 	slasherProvider        string
@@ -95,7 +97,7 @@ type Config struct {
 	Port                  string
 	CertFlag              string
 	KeyFlag               string
-	BeaconDB              db.ReadOnlyDatabase
+	BeaconDB              db.HeadAccessDatabase
 	HeadFetcher           blockchain.HeadFetcher
 	ForkFetcher           blockchain.ForkFetcher
 	FinalizationFetcher   blockchain.FinalizationFetcher
@@ -104,7 +106,7 @@ type Config struct {
 	BlockReceiver         blockchain.BlockReceiver
 	POWChainService       powchain.Chain
 	ChainStartFetcher     powchain.ChainStartFetcher
-	GenesisTimeFetcher    blockchain.GenesisTimeFetcher
+	GenesisTimeFetcher    blockchain.TimeFetcher
 	MockEth1Votes         bool
 	AttestationsPool      attestations.Pool
 	ExitPool              *voluntaryexits.Pool
@@ -116,6 +118,7 @@ type Config struct {
 	SlasherProvider       string
 	SlasherCert           string
 	StateNotifier         statefeed.Notifier
+	BlockNotifier         blockfeed.Notifier
 	OperationNotifier     opfeed.Notifier
 }
 
@@ -151,6 +154,7 @@ func NewService(ctx context.Context, cfg *Config) *Service {
 		canonicalStateChan:    make(chan *pbp2p.BeaconState, params.BeaconConfig().DefaultBufferSize),
 		incomingAttestation:   make(chan *ethpb.Attestation, params.BeaconConfig().DefaultBufferSize),
 		stateNotifier:         cfg.StateNotifier,
+		blockNotifier:         cfg.BlockNotifier,
 		operationNotifier:     cfg.OperationNotifier,
 		slasherProvider:       cfg.SlasherProvider,
 		slasherCert:           cfg.SlasherCert,
@@ -217,6 +221,7 @@ func (s *Service) Start() {
 		Eth1InfoFetcher:        s.powChainService,
 		SyncChecker:            s.syncService,
 		StateNotifier:          s.stateNotifier,
+		BlockNotifier:          s.blockNotifier,
 		OperationNotifier:      s.operationNotifier,
 		P2P:                    s.p2p,
 		BlockReceiver:          s.blockReceiver,
@@ -242,6 +247,7 @@ func (s *Service) Start() {
 		ChainStartFetcher:    s.chainStartFetcher,
 		CanonicalStateChan:   s.canonicalStateChan,
 		StateNotifier:        s.stateNotifier,
+		BlockNotifier:        s.blockNotifier,
 		SlotTicker:           ticker,
 	}
 	aggregatorServer := &aggregator.Server{

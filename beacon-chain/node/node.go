@@ -21,6 +21,8 @@ import (
 	"github.com/prysmaticlabs/prysm/beacon-chain/cache/depositcache"
 	"github.com/prysmaticlabs/prysm/beacon-chain/db"
 	"github.com/prysmaticlabs/prysm/beacon-chain/flags"
+	"github.com/prysmaticlabs/prysm/beacon-chain/forkchoice"
+	"github.com/prysmaticlabs/prysm/beacon-chain/forkchoice/protoarray"
 	"github.com/prysmaticlabs/prysm/beacon-chain/gateway"
 	interopcoldstart "github.com/prysmaticlabs/prysm/beacon-chain/interop-cold-start"
 	"github.com/prysmaticlabs/prysm/beacon-chain/operations/attestations"
@@ -62,7 +64,9 @@ type BeaconNode struct {
 	exitPool        *voluntaryexits.Pool
 	depositCache    *depositcache.DepositCache
 	stateFeed       *event.Feed
+	blockFeed       *event.Feed
 	opFeed          *event.Feed
+	forkChoiceStore forkchoice.ForkChoicer
 }
 
 // NewBeaconNode creates a new node instance, sets up configuration options, and registers
@@ -101,6 +105,7 @@ func NewBeaconNode(ctx *cli.Context) (*BeaconNode, error) {
 		services:        registry,
 		stop:            make(chan struct{}),
 		stateFeed:       new(event.Feed),
+		blockFeed:       new(event.Feed),
 		opFeed:          new(event.Feed),
 		attestationPool: attestations.NewPool(),
 		exitPool:        voluntaryexits.NewPool(),
@@ -125,6 +130,8 @@ func NewBeaconNode(ctx *cli.Context) (*BeaconNode, error) {
 	if err := beacon.registerInteropServices(ctx); err != nil {
 		return nil, err
 	}
+
+	beacon.startForkChoice()
 
 	if err := beacon.registerBlockchainService(ctx); err != nil {
 		return nil, err
@@ -162,6 +169,11 @@ func NewBeaconNode(ctx *cli.Context) (*BeaconNode, error) {
 // StateFeed implements statefeed.Notifier.
 func (b *BeaconNode) StateFeed() *event.Feed {
 	return b.stateFeed
+}
+
+// BlockFeed implements blockfeed.Notifier.
+func (b *BeaconNode) BlockFeed() *event.Feed {
+	return b.blockFeed
 }
 
 // OperationFeed implements opfeed.Notifier.
@@ -214,6 +226,11 @@ func (b *BeaconNode) Close() {
 		log.Errorf("Failed to close database: %v", err)
 	}
 	close(b.stop)
+}
+
+func (b *BeaconNode) startForkChoice() {
+	f := protoarray.New(0, 0, params.BeaconConfig().ZeroHash)
+	b.forkChoiceStore = f
 }
 
 func (b *BeaconNode) startDB(ctx *cli.Context) error {
@@ -312,6 +329,7 @@ func (b *BeaconNode) registerBlockchainService(ctx *cli.Context) error {
 		P2p:               b.fetchP2P(ctx),
 		MaxRoutines:       maxRoutines,
 		StateNotifier:     b,
+		ForkChoiceStore:   b.forkChoiceStore,
 	})
 	if err != nil {
 		return errors.Wrap(err, "could not register blockchain service")
@@ -396,6 +414,7 @@ func (b *BeaconNode) registerSyncService(ctx *cli.Context) error {
 		Chain:         chainService,
 		InitialSync:   initSync,
 		StateNotifier: b,
+		BlockNotifier: b,
 		AttPool:       b.attestationPool,
 		ExitPool:      b.exitPool,
 	})
@@ -404,7 +423,6 @@ func (b *BeaconNode) registerSyncService(ctx *cli.Context) error {
 }
 
 func (b *BeaconNode) registerInitialSyncService(ctx *cli.Context) error {
-
 	var chainService *blockchain.Service
 	if err := b.services.FetchService(&chainService); err != nil {
 		return err
@@ -415,6 +433,7 @@ func (b *BeaconNode) registerInitialSyncService(ctx *cli.Context) error {
 		Chain:         chainService,
 		P2P:           b.fetchP2P(ctx),
 		StateNotifier: b,
+		BlockNotifier: b,
 	})
 
 	return b.services.RegisterService(is)
@@ -484,6 +503,7 @@ func (b *BeaconNode) registerRPCService(ctx *cli.Context) error {
 		SyncService:           syncService,
 		DepositFetcher:        depositFetcher,
 		PendingDepositFetcher: b.depositCache,
+		BlockNotifier:         b,
 		StateNotifier:         b,
 		OperationNotifier:     b,
 		SlasherCert:           slasherCert,
@@ -510,6 +530,8 @@ func (b *BeaconNode) registerPrometheusService(ctx *cli.Context) error {
 	if featureconfig.Get().EnableBackupWebhook {
 		additionalHandlers = append(additionalHandlers, prometheus.Handler{Path: "/db/backup", Handler: db.BackupHandler(b.db)})
 	}
+
+	additionalHandlers = append(additionalHandlers, prometheus.Handler{Path: "/tree", Handler: c.TreeHandler})
 
 	service := prometheus.NewPrometheusService(
 		fmt.Sprintf(":%d", ctx.GlobalInt64(cmd.MonitoringPortFlag.Name)),

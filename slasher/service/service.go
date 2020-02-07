@@ -16,6 +16,7 @@ import (
 	recovery "github.com/grpc-ecosystem/go-grpc-middleware/recovery"
 	grpc_opentracing "github.com/grpc-ecosystem/go-grpc-middleware/tracing/opentracing"
 	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-prometheus"
+	"github.com/pkg/errors"
 	eth "github.com/prysmaticlabs/ethereumapis/eth/v1alpha1"
 	slashpb "github.com/prysmaticlabs/prysm/proto/slashing"
 	"github.com/prysmaticlabs/prysm/shared/cmd"
@@ -44,6 +45,7 @@ func init() {
 type Service struct {
 	slasherDb       *db.Store
 	grpcServer      *grpc.Server
+	slasher         *rpc.Server
 	port            int
 	withCert        string
 	withKey         string
@@ -87,7 +89,9 @@ func NewRPCService(cfg *Config, ctx *cli.Context) (*Service, error) {
 	if err := s.startDB(s.ctx); err != nil {
 		return nil, err
 	}
-
+	s.slasher = &rpc.Server{
+		SlasherDB: s.slasherDb,
+	}
 	return s, nil
 }
 
@@ -99,9 +103,25 @@ func (s *Service) Start() {
 	}).Info("Starting hash slinging slasher node")
 	s.context = context.Background()
 	s.startSlasher()
-	s.startBeaconClient()
-	go s.finalisedChangeUpdater()
+	if s.beaconClient == nil {
+		if err := s.startBeaconClient(); err != nil {
+			log.WithError(err).Errorf("failed to start beacon client")
+			s.failStatus = err
+			return
+		}
+	}
 	stop := s.stop
+	err := s.slasherOldAttestationFeeder()
+	if err != nil {
+		err = errors.Wrap(err, "couldn't start attestation feeder from archive endpoint. please use "+
+			"--beacon-rpc-provider flag value if you are not running a beacon chain service with "+
+			"--archive flag on the local machine.")
+		log.WithError(err)
+		s.failStatus = err
+		return
+	}
+	go s.attestationFeeder()
+	go s.finalizedChangeUpdater()
 	s.lock.Unlock()
 
 	go func() {
@@ -163,7 +183,7 @@ func (s *Service) startSlasher() {
 		SlasherDB: s.slasherDb,
 	}
 	if s.ctx.GlobalBool(flags.RebuildSpanMapsFlag.Name) {
-		s.loadSpanMaps(err, slasherServer)
+		s.loadSpanMaps(slasherServer)
 	}
 	slashpb.RegisterSlasherServer(s.grpcServer, &slasherServer)
 
@@ -179,24 +199,26 @@ func (s *Service) startSlasher() {
 	}()
 }
 
-func (s *Service) loadSpanMaps(err error, slasherServer rpc.Server) {
-	lt, err := slasherServer.SlasherDB.LatestIndexedAttestationsTargetEpoch()
+func (s *Service) loadSpanMaps(slasherServer rpc.Server) {
+	latestTargetEpoch, err := slasherServer.SlasherDB.LatestIndexedAttestationsTargetEpoch()
 	if err != nil {
 		log.Errorf("Could not extract latest target epoch from indexed attestations store: %v", err)
 	}
-	for i := uint64(0); i < lt; i++ {
-		ias, err := slasherServer.SlasherDB.IndexedAttestations(i)
+	for epoch := uint64(0); epoch < latestTargetEpoch; epoch++ {
+		idxAtts, err := slasherServer.SlasherDB.IdxAttsForTarget(epoch)
 		if err != nil {
 			log.Errorf("Got error while trying to retrieve indexed attestations from db: %v", err)
 		}
-		for _, ia := range ias {
-			slasherServer.UpdateSpanMaps(s.context, ia)
+		for _, ia := range idxAtts {
+			if err := slasherServer.UpdateSpanMaps(s.context, ia); err != nil {
+				log.Errorf("Unexpected error updating span maps: %v", err)
+			}
 		}
-		log.Infof("Update span maps for epoch: %d", i)
+		log.Infof("Update span maps for epoch: %d", epoch)
 	}
 }
 
-func (s *Service) startBeaconClient() {
+func (s *Service) startBeaconClient() error {
 	var dialOpt grpc.DialOption
 
 	if s.beaconCert != "" {
@@ -223,19 +245,21 @@ func (s *Service) startBeaconClient() {
 	}
 	conn, err := grpc.DialContext(s.context, s.beaconProvider, beaconOpts...)
 	if err != nil {
-		log.Errorf("Could not dial endpoint: %s, %v", s.beaconProvider, err)
-		return
+		return fmt.Errorf("could not dial endpoint: %s, %v", s.beaconProvider, err)
 	}
 	log.Info("Successfully started gRPC connection")
 	s.beaconConn = conn
 	s.beaconClient = eth.NewBeaconChainClient(s.beaconConn)
+	return nil
 }
 
 // Stop the service.
 func (s *Service) Stop() error {
 	log.Info("Stopping service")
 	if s.slasherDb != nil {
-		s.slasherDb.Close()
+		if err := s.slasherDb.Close(); err != nil {
+			return err
+		}
 	}
 	if s.listener != nil {
 		s.grpcServer.GracefulStop()
@@ -249,8 +273,7 @@ func (s *Service) Close() {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	log.Info("Stopping hash slinging slasher")
-	err := s.Stop()
-	if err != nil {
+	if err := s.Stop(); err != nil {
 		log.Panicf("Could not stop the slasher service: %v", err)
 	}
 	if err := s.slasherDb.SaveCachedSpansMaps(); err != nil {

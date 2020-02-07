@@ -25,7 +25,9 @@ func TestService_committeeIndexBeaconAttestationSubscriber_ValidMessage(t *testi
 	db := dbtest.SetupDB(t)
 	defer dbtest.TeardownDB(t, db)
 	s, sKeys := testutil.DeterministicGenesisState(t, 64 /*validators*/)
-	s.GenesisTime = uint64(time.Now().Unix())
+	if err := s.SetGenesisTime(uint64(time.Now().Unix())); err != nil {
+		t.Fatal(err)
+	}
 	blk, err := testutil.GenerateFullBlock(s, sKeys, nil, 1)
 	if err != nil {
 		t.Fatal(err)
@@ -40,8 +42,9 @@ func TestService_committeeIndexBeaconAttestationSubscriber_ValidMessage(t *testi
 	r := &Service{
 		attPool: attestations.NewPool(),
 		chain: &mock.ChainService{
-			State:   s,
-			Genesis: time.Now(),
+			State:            s,
+			Genesis:          time.Now(),
+			ValidAttestation: true,
 		},
 		chainStarted:  true,
 		p2p:           p,

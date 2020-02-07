@@ -8,6 +8,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/prysmaticlabs/prysm/beacon-chain/blockchain"
 	"github.com/prysmaticlabs/prysm/beacon-chain/core/feed"
+	blockfeed "github.com/prysmaticlabs/prysm/beacon-chain/core/feed/block"
 	statefeed "github.com/prysmaticlabs/prysm/beacon-chain/core/feed/state"
 	"github.com/prysmaticlabs/prysm/beacon-chain/core/helpers"
 	"github.com/prysmaticlabs/prysm/beacon-chain/db"
@@ -38,6 +39,7 @@ type Config struct {
 	DB            db.ReadOnlyDatabase
 	Chain         blockchainService
 	StateNotifier statefeed.Notifier
+	BlockNotifier blockfeed.Notifier
 }
 
 // Service service.
@@ -49,6 +51,7 @@ type Service struct {
 	synced            bool
 	chainStarted      bool
 	stateNotifier     statefeed.Notifier
+	blockNotifier     blockfeed.Notifier
 	blocksRateLimiter *leakybucket.Collector
 }
 
@@ -61,6 +64,7 @@ func NewInitialSync(cfg *Config) *Service {
 		p2p:               cfg.P2P,
 		db:                cfg.DB,
 		stateNotifier:     cfg.StateNotifier,
+		blockNotifier:     cfg.BlockNotifier,
 		blocksRateLimiter: leakybucket.NewCollector(allowedBlocksPerSecond, allowedBlocksPerSecond, false /* deleteEmptyBuckets */),
 	}
 }
@@ -95,7 +99,7 @@ func (s *Service) Start() {
 		}
 		stateSub.Unsubscribe()
 	} else {
-		genesis = time.Unix(int64(headState.GenesisTime), 0)
+		genesis = time.Unix(int64(headState.GenesisTime()), 0)
 	}
 
 	if genesis.After(roughtime.Now()) {
@@ -155,7 +159,7 @@ func (s *Service) Resync() error {
 	if err != nil {
 		return errors.Wrap(err, "could not retrieve head state")
 	}
-	genesis := time.Unix(int64(headState.GenesisTime), 0)
+	genesis := time.Unix(int64(headState.GenesisTime()), 0)
 
 	s.waitForMinimumPeers()
 	err = s.roundRobinSync(genesis)

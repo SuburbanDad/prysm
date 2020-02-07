@@ -13,10 +13,13 @@ The process for implementing new features using this package is as follows:
 		VerifyAttestationSigs: true,
 	}
 	featureconfig.Init(cfg)
+	6. Add the string for the flags that should be running within E2E to E2EValidatorFlags
+	and E2EBeaconChainFlags.
 */
 package featureconfig
 
 import (
+	"github.com/prysmaticlabs/prysm/shared/params"
 	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli"
 )
@@ -25,18 +28,20 @@ var log = logrus.WithField("prefix", "flags")
 
 // Flags is a struct to represent which features the client will perform on runtime.
 type Flags struct {
-	NoGenesisDelay            bool   // NoGenesisDelay signals to start the chain as quickly as possible.
-	MinimalConfig             bool   // MinimalConfig as defined in the spec.
-	WriteSSZStateTransitions  bool   // WriteSSZStateTransitions to tmp directory.
-	InitSyncNoVerify          bool   // InitSyncNoVerify when initial syncing w/o verifying block's contents.
-	SkipBLSVerify             bool   // Skips BLS verification across the runtime.
-	EnableBackupWebhook       bool   // EnableBackupWebhook to allow database backups to trigger from monitoring port /db/backup.
-	PruneEpochBoundaryStates  bool   // PruneEpochBoundaryStates prunes the epoch boundary state before last finalized check point.
-	EnableSnappyDBCompression bool   // EnableSnappyDBCompression in the database.
-	InitSyncCacheState        bool   // InitSyncCacheState caches state during initial sync.
-	KafkaBootstrapServers     string // KafkaBootstrapServers to find kafka servers to stream blocks, attestations, etc.
-	ProtectProposer           bool   // ProtectProposer prevents the validator client from signing any proposals that would be considered a slashable offense.
-	ProtectAttester           bool   // ProtectAttester prevents the validator client from signing any attestations that would be considered a slashable offense.
+	CustomGenesisDelay                         uint64 // CustomGenesisDelay signals how long of a delay to set to start the chain.
+	MinimalConfig                              bool   // MinimalConfig as defined in the spec.
+	WriteSSZStateTransitions                   bool   // WriteSSZStateTransitions to tmp directory.
+	InitSyncNoVerify                           bool   // InitSyncNoVerify when initial syncing w/o verifying block's contents.
+	SkipBLSVerify                              bool   // Skips BLS verification across the runtime.
+	EnableBackupWebhook                        bool   // EnableBackupWebhook to allow database backups to trigger from monitoring port /db/backup.
+	PruneEpochBoundaryStates                   bool   // PruneEpochBoundaryStates prunes the epoch boundary state before last finalized check point.
+	EnableSnappyDBCompression                  bool   // EnableSnappyDBCompression in the database.
+	InitSyncCacheState                         bool   // InitSyncCacheState caches state during initial sync.
+	KafkaBootstrapServers                      string // KafkaBootstrapServers to find kafka servers to stream blocks, attestations, etc.
+	ProtectProposer                            bool   // ProtectProposer prevents the validator client from signing any proposals that would be considered a slashable offense.
+	ProtectAttester                            bool   // ProtectAttester prevents the validator client from signing any attestations that would be considered a slashable offense.
+	ForkchoiceAggregateAttestations            bool   // ForkchoiceAggregateAttestations attempts to aggregate attestations before processing in fork choice.
+	DisableStrictAttestationPubsubVerification bool   // DisableStrictAttestationPubsubVerification will disabling strict signature verification in pubsub.
 
 	// DisableForkChoice disables using LMD-GHOST fork choice to update
 	// the head of the chain based on attestations and instead accepts any valid received block
@@ -44,13 +49,12 @@ type Flags struct {
 	DisableForkChoice bool
 
 	// Cache toggles.
-	EnableAttestationCache   bool // EnableAttestationCache; see https://github.com/prysmaticlabs/prysm/issues/3106.
-	EnableSSZCache           bool // EnableSSZCache see https://github.com/prysmaticlabs/prysm/pull/4558.
-	EnableEth1DataVoteCache  bool // EnableEth1DataVoteCache; see https://github.com/prysmaticlabs/prysm/issues/3106.
-	EnableSkipSlotsCache     bool // EnableSkipSlotsCache caches the state in skipped slots.
-	EnableSlasherConnection  bool // EnableSlasher enable retrieval of slashing events from a slasher instance.
-	EnableBlockTreeCache     bool // EnableBlockTreeCache enable fork choice service to maintain latest filtered block tree.
-	EnableProposerIndexCache bool // EnableProposerIndexCache enable caching of proposer index.
+	EnableAttestationCache  bool // EnableAttestationCache; see https://github.com/prysmaticlabs/prysm/issues/3106.
+	EnableSSZCache          bool // EnableSSZCache see https://github.com/prysmaticlabs/prysm/pull/4558.
+	EnableEth1DataVoteCache bool // EnableEth1DataVoteCache; see https://github.com/prysmaticlabs/prysm/issues/3106.
+	EnableSkipSlotsCache    bool // EnableSkipSlotsCache caches the state in skipped slots.
+	EnableSlasherConnection bool // EnableSlasher enable retrieval of slashing events from a slasher instance.
+	EnableBlockTreeCache    bool // EnableBlockTreeCache enable fork choice service to maintain latest filtered block tree.
 }
 
 var featureConfig *Flags
@@ -73,10 +77,11 @@ func Init(c *Flags) {
 func ConfigureBeaconChain(ctx *cli.Context) {
 	complainOnDeprecatedFlags(ctx)
 	cfg := &Flags{}
-	if ctx.GlobalBool(noGenesisDelayFlag.Name) {
-		log.Warn("Starting ETH2 with no genesis delay")
-		cfg.NoGenesisDelay = true
+	delay := ctx.GlobalUint64(customGenesisDelayFlag.Name)
+	if delay != params.BeaconConfig().MinGenesisDelay {
+		log.Warnf("Starting ETH2 with genesis delay of %d seconds", delay)
 	}
+	cfg.CustomGenesisDelay = delay
 	if ctx.GlobalBool(minimalConfigFlag.Name) {
 		log.Warn("Using minimal config")
 		cfg.MinimalConfig = true
@@ -135,10 +140,15 @@ func ConfigureBeaconChain(ctx *cli.Context) {
 		log.Warn("Enabled filtered block tree cache for fork choice.")
 		cfg.EnableBlockTreeCache = true
 	}
-	if ctx.GlobalBool(cacheProposerIndicesFlag.Name) {
-		log.Warn("Enabled proposer index caching.")
-		cfg.EnableProposerIndexCache = true
+	if ctx.GlobalBool(forkchoiceAggregateAttestations.Name) {
+		log.Warn("Enabled fork choice aggregation pre-processing of attestations")
+		cfg.ForkchoiceAggregateAttestations = true
 	}
+	if ctx.GlobalBool(disableStrictAttestationPubsubVerificationFlag.Name) {
+		log.Warn("Disabled strict attestation signature verification in pubsub")
+		cfg.DisableStrictAttestationPubsubVerification = true
+	}
+
 	Init(cfg)
 }
 
