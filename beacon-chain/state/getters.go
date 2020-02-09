@@ -694,7 +694,9 @@ func CopyCheckpoint(cp *ethpb.Checkpoint) *ethpb.Checkpoint {
 // CopySignedBeaconBlock copies the provided SignedBeaconBlock
 func CopySignedBeaconBlock(sigBlock *ethpb.SignedBeaconBlock) *ethpb.SignedBeaconBlock {
 	if sigBlock == nil {
-		return &ethpb.SignedBeaconBlock{}
+		return &ethpb.SignedBeaconBlock{
+			Block: CopyBeaconBlock(nil),
+		}
 	}
 	sig := safeCopyBytes(sigBlock.Signature)
 	return &ethpb.SignedBeaconBlock{
@@ -706,7 +708,9 @@ func CopySignedBeaconBlock(sigBlock *ethpb.SignedBeaconBlock) *ethpb.SignedBeaco
 // CopyBeaconBlock copies the provided BeaconBlock
 func CopyBeaconBlock(block *ethpb.BeaconBlock) *ethpb.BeaconBlock {
 	if block == nil {
-		return &ethpb.BeaconBlock{}
+		return &ethpb.BeaconBlock{
+			Body: CopyBeaconBlockBody(nil),
+		}
 	}
 	parentRoot := safeCopyBytes(block.ParentRoot)
 	stateRoot := safeCopyBytes(block.StateRoot)
@@ -721,7 +725,14 @@ func CopyBeaconBlock(block *ethpb.BeaconBlock) *ethpb.BeaconBlock {
 // CopyBeaconBlockBody copies the provided BeaconBlockBody
 func CopyBeaconBlockBody(body *ethpb.BeaconBlockBody) *ethpb.BeaconBlockBody {
 	if body == nil {
-		return &ethpb.BeaconBlockBody{}
+		return &ethpb.BeaconBlockBody{
+			Eth1Data:             CopyETH1Data(nil),
+			ProposerSlashings:    CopyProposerSlashings(nil),
+			AttesterSlashings:    CopyAttesterSlashings(nil),
+			Attestations:         CopyAttestations(nil),
+			Deposits:             CopyDeposits(nil),
+			VoluntaryExits:       CopySignedVoluntaryExits(nil),
+		}
 	}
 
 	randaoReveal := safeCopyBytes(body.RandaoReveal)
