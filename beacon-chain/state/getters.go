@@ -2,8 +2,6 @@ package state
 
 import (
 	"fmt"
-	"github.com/prysmaticlabs/prysm/shared/params"
-
 	ethpb "github.com/prysmaticlabs/ethereumapis/eth/v1alpha1"
 	"github.com/prysmaticlabs/go-bitfield"
 	pbp2p "github.com/prysmaticlabs/prysm/proto/beacon/p2p/v1"
@@ -795,7 +793,11 @@ func CopySignedBeaconBlockHeader(header *ethpb.SignedBeaconBlockHeader) *ethpb.S
 	if header == nil {
 		return &ethpb.SignedBeaconBlockHeader{}
 	}
-	sig := [96]byte{}
+	siglen := len(header.Signature)
+	if (header.Signature == nil) {
+		siglen = 96
+	}
+	sig := make([]byte, siglen)
 	if header.Signature != nil {
 		copy(sig[:], header.Signature)
 	}
@@ -810,9 +812,9 @@ func CopyBeaconBlockHeader(header *ethpb.BeaconBlockHeader) *ethpb.BeaconBlockHe
 	if header == nil {
 		return &ethpb.BeaconBlockHeader{}
 	}
-	parentRoot := params.BeaconConfig().ZeroHash
-	stateRoot := params.BeaconConfig().ZeroHash
-	bodyRoot := params.BeaconConfig().ZeroHash
+	parentRoot := [32]byte{}
+	stateRoot := [32]byte{}
+	bodyRoot := [32]byte{}
 
 	if header.ParentRoot != nil {
 		copy(parentRoot[:], header.ParentRoot)
