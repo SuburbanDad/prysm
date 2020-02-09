@@ -144,8 +144,6 @@ func (b *BeaconState) LatestBlockHeader() *ethpb.BeaconBlockHeader {
 	b.lock.RLock()
 	defer b.lock.RUnlock()
 
-	//todo: use copyBeaconBlockHeader instead
-
 	hdr := &ethpb.BeaconBlockHeader{
 		Slot: b.state.LatestBlockHeader.Slot,
 	}
