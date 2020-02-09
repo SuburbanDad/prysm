@@ -211,6 +211,7 @@ func ProcessBlockHeader(
 	currentEpoch := helpers.SlotToEpoch(beaconState.Slot())
 	domain := helpers.Domain(beaconState.Fork(), currentEpoch, params.BeaconConfig().DomainBeaconProposer)
 	if err := verifySigningRoot(block.Block, proposer.PublicKey, block.Signature, domain); err != nil {
+		log.Error("DEBUG", err)
 		return nil, ErrSigFailedToVerify
 	}
 
