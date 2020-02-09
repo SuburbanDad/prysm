@@ -144,8 +144,6 @@ func (b *BeaconState) LatestBlockHeader() *ethpb.BeaconBlockHeader {
 	b.lock.RLock()
 	defer b.lock.RUnlock()
 
-	//todo: use copyBeaconBlockHeader instead
-
 	hdr := &ethpb.BeaconBlockHeader{
 		Slot: b.state.LatestBlockHeader.Slot,
 	}
@@ -768,7 +766,7 @@ func CopyBeaconBlockBody(body *ethpb.BeaconBlockBody) *ethpb.BeaconBlockBody {
 	}
 }
 
-// CopyProposerSlashing copies the provided ProposerSlashing array
+// CopyProposerSlashings copies the provided ProposerSlashing array
 func CopyProposerSlashings(slashings []*ethpb.ProposerSlashing) []*ethpb.ProposerSlashing {
 	if slashings == nil {
 		return []*ethpb.ProposerSlashing{}
@@ -865,7 +863,7 @@ func CopyIndexedAttestation(indexedAtt *ethpb.IndexedAttestation) *ethpb.Indexed
 
 }
 
-// CopyAttestation copies the provided Attestation array
+// CopyAttestations copies the provided Attestation array
 func CopyAttestations(attestations []*ethpb.Attestation) []*ethpb.Attestation {
 	if attestations == nil {
 		return []*ethpb.Attestation{}
@@ -877,6 +875,7 @@ func CopyAttestations(attestations []*ethpb.Attestation) []*ethpb.Attestation {
 	return newAttestations[:]
 }
 
+// CopyDeposits copies the provided deposit array
 func CopyDeposits(deposits []*ethpb.Deposit) []*ethpb.Deposit {
 	if deposits == nil {
 		return []*ethpb.Deposit{}
@@ -888,6 +887,7 @@ func CopyDeposits(deposits []*ethpb.Deposit) []*ethpb.Deposit {
 	return newDeposits[:]
 }
 
+// CopyDeposit copies the provided deposit
 func CopyDeposit(deposit *ethpb.Deposit) *ethpb.Deposit{
 	if deposit == nil {
 		return &ethpb.Deposit{}
@@ -922,6 +922,7 @@ func CopyDeposit(deposit *ethpb.Deposit) *ethpb.Deposit{
 	}
 }
 
+// CopySignedVoluntaryExits copies the provided SignedVoluntaryExits array
 func CopySignedVoluntaryExits(exits []*ethpb.SignedVoluntaryExit) []*ethpb.SignedVoluntaryExit {
 
 	if exits == nil {
@@ -933,6 +934,7 @@ func CopySignedVoluntaryExits(exits []*ethpb.SignedVoluntaryExit) []*ethpb.Signe
 	}
 	return newExits[:]
 }
+// CopySignedVoluntaryExit copies the provided SignedVoluntaryExit
 func CopySignedVoluntaryExit(exit *ethpb.SignedVoluntaryExit) *ethpb.SignedVoluntaryExit {
 	if exit == nil {
 		return &ethpb.SignedVoluntaryExit{}
@@ -946,6 +948,7 @@ func CopySignedVoluntaryExit(exit *ethpb.SignedVoluntaryExit) *ethpb.SignedVolun
 	}
 }
 
+// CopyVoluntaryExit copies the provided VoluntaryExit
 func CopyVoluntaryExit(exit *ethpb.VoluntaryExit) *ethpb.VoluntaryExit {
 	if exit == nil {
 		return &ethpb.VoluntaryExit{}
