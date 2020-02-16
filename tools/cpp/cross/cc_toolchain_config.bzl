@@ -32,78 +32,31 @@ load(
     ALL_LINK_ACTIONS = "all_link_actions",
 )
 
-def _impl(ctx):
-    toolchain_identifier = "clang-linux-cross"
-    compiler = "clang"
-    abi_version = "clang"
+def _linux_arm64_impl(ctx):
+    toolchain_identifier = "gcc-linux-arm64-cross"
+    compiler = "gcc"
+    abi_version = "elf"
     abi_libc_version = "glibc_unknown"
     target_libc = "glibc_unknown"
     target_cpu = ctx.attr.target.split("-")[0]
+    root = "/usr/xcc/"
+    arch = "aarch64-unknown-linux-gnueabi"
+    install_path = root + arch + "/"
+    include_path_prefix = install_path + arch + "/"
+    sysroot = include_path_prefix + "/sysroot/"
 
-    if (target_cpu == "aarch64"):
-        sysroot = "/usr/aarch64-linux-gnu"
-        include_path_prefix = sysroot
-    elif (target_cpu == "arm"):
-        sysroot = "/usr/arm-linux-gnueabihf"
-        include_path_prefix = sysroot
-    elif (target_cpu == "x86_64"):
-        sysroot = "/"
-        include_path_prefix = "/usr"
-    else:
-        fail("Unreachable")
-
-    if (ctx.attr.stdlib == "gnu"):
-        if (target_cpu == "aarch64" or target_cpu == "arm"):
-            cross_system_include_dirs = [
-                include_path_prefix + "/include/c++/8",
-                include_path_prefix + "/include/c++/8/" + ctx.attr.target,
-                include_path_prefix + "/lib/clang/9.0.0/include",
-            ]
-        else:
-            cross_system_include_dirs = [
-                include_path_prefix + "/include/c++/8",
-                include_path_prefix + "/include/x86_64-linux-gnu/c++/8",
-                include_path_prefix + "/lib/clang/9.0.0/include",
-                include_path_prefix + "/include/x86_64-linux-gnu",
-            ]
-    else:
-        if (target_cpu == "aarch64" or target_cpu == "arm"):
-            cross_system_include_dirs = [
-                include_path_prefix + "/include/c++/v1",
-                include_path_prefix + "/lib/clang/9.0.0/include",
-            ]
-        else:
-            cross_system_include_dirs = [
-                include_path_prefix + "/include/c++/v1",
-                include_path_prefix + "/lib/clang/9.0.0/include",
-                include_path_prefix + "/include/x86_64-linux-gnu",
-            ]
-
-    cross_system_include_dirs += [
-        include_path_prefix + "/include/",
-        include_path_prefix + "/include/linux",
-        include_path_prefix + "/include/asm",
-        include_path_prefix + "/include/asm-generic",
+    # TODO: do we need to explicitly call out systemroot includes?
+    cross_system_include_dirs = [
+        include_path_prefix + "include/c++/4.9.4",
+        include_path_prefix + "include/c++/4.9.4/" + arch,
+        install_path + "lib/gcc/aarch64-unknown-linux-gnueabi/4.9.4/include",
     ]
 
-    if (target_cpu == "aarch64" or target_cpu == "arm"):
-        cross_system_lib_dirs = [
-            "/usr/" + ctx.attr.target + "/lib",
-        ]
-    else:
-        cross_system_lib_dirs = [
-            "/usr/lib/x86_64-linux-gnu/",
-        ]
-
-    if (ctx.attr.stdlib == "gnu"):
-        if (target_cpu == "aarch64" or target_cpu == "arm"):
-            cross_system_lib_dirs += [
-                "/usr/lib/gcc-cross/" + ctx.attr.target + "/8",
-            ]
-        else:
-            cross_system_lib_dirs += [
-                "/usr/lib/gcc/x86_64-linux-gnu/8",
-            ]
+    # TODO: do we need to explicitly call out systemroot libs?
+    cross_system_lib_dirs = [
+        include_path_prefix + "lib",
+        install_path + "lib",
+    ]
 
     opt_feature = feature(name = "opt")
     dbg_feature = feature(name = "dbg")
@@ -112,219 +65,26 @@ def _impl(ctx):
     supports_pic_feature = feature(name = "supports_pic", enabled = True)
     supports_dynamic_linker_feature = feature(name = "supports_dynamic_linker", enabled = True)
 
-    unfiltered_compile_flags_feature = feature(
-        name = "unfiltered_compile_flags",
-        enabled = True,
-        flag_sets = [
-            flag_set(
-                actions = ALL_COMPILE_ACTIONS,
-                flag_groups = [
-                    flag_group(
-                        flags = [
-                            "-no-canonical-prefixes",
-                            "-Wno-builtin-macro-redefined",
-                            "-D__DATE__=\"redacted\"",
-                            "-D__TIMESTAMP__=\"redacted\"",
-                            "-D__TIME__=\"redacted\"",
-                        ],
-                    ),
-                ],
-            ),
-        ],
-    )
-
-    # explicit arch specific system includes
-    system_include_flags = []
-    for d in cross_system_include_dirs:
-        system_include_flags += ["-idirafter", d]
-
-    default_compile_flags_feature = feature(
-        name = "default_compile_flags",
-        enabled = True,
-        flag_sets = [
-            flag_set(
-                actions = ALL_COMPILE_ACTIONS,
-                flag_groups = [
-                    flag_group(
-                        flags = [
-                            "--target=" + ctx.attr.target,
-                            "-nostdinc",
-                            "-U_FORTIFY_SOURCE",
-                            "-fstack-protector",
-                            "-fno-omit-frame-pointer",
-                            "-fcolor-diagnostics",
-                            "-Wall",
-                            "-Wthread-safety",
-                            "-Wself-assign",
-                        ] + system_include_flags,
-                    ),
-                ],
-            ),
-            flag_set(
-                actions = ALL_COMPILE_ACTIONS,
-                flag_groups = [flag_group(flags = ["-g", "-fstandalone-debug"])],
-                with_features = [with_feature_set(features = ["dbg"])],
-            ),
-            flag_set(
-                actions = ALL_COMPILE_ACTIONS,
-                flag_groups = [
-                    flag_group(
-                        flags = [
-                            "-g0",
-                            "-O2",
-                            "-D_FORTIFY_SOURCE=1",
-                            "-DNDEBUG",
-                            "-ffunction-sections",
-                            "-fdata-sections",
-                        ],
-                    ),
-                ],
-                with_features = [with_feature_set(features = ["opt"])],
-            ),
-            flag_set(
-                actions = ALL_CPP_COMPILE_ACTIONS,
-                flag_groups = [flag_group(flags = ["-std=c++17", "-nostdinc++"])],
-            ),
-        ],
-    )
-
-    if (ctx.attr.stdlib == "gnu"):
-        additional_link_flags = ["-lstdc++"]
-    else:
-        additional_link_flags = [
-            "-l:libc++.a",
-            "-l:libc++abi.a",
-            "-l:libunwind.a",
-            "-lpthread",
-            "-ldl",
-            "-rtlib=compiler-rt",
-        ]
-
-    default_link_flags_feature = feature(
-        name = "default_link_flags",
-        enabled = True,
-        flag_sets = [
-            flag_set(
-                actions = ALL_LINK_ACTIONS,
-                flag_groups = [
-                    flag_group(
-                        flags = additional_link_flags + [
-                            "--target=" + ctx.attr.target,
-                            "-lm",
-                            "-no-canonical-prefixes",
-                            "-fuse-ld=lld",
-                            "-Wl,--build-id=md5",
-                            "-Wl,--hash-style=gnu",
-                            "-Wl,-z,relro,-z,now",
-                        ] + ["-L" + d for d in cross_system_lib_dirs],
-                    ),
-                ],
-            ),
-            flag_set(
-                actions = ALL_LINK_ACTIONS,
-                flag_groups = [flag_group(flags = ["-Wl,--gc-sections"])],
-                with_features = [with_feature_set(features = ["opt"])],
-            ),
-        ],
-    )
-
-    objcopy_embed_flags_feature = feature(
-        name = "objcopy_embed_flags",
-        enabled = True,
-        flag_sets = [
-            flag_set(
-                actions = ["objcopy_embed_data"],
-                flag_groups = [flag_group(flags = ["-I", "binary"])],
-            ),
-        ],
-    )
-
-    user_compile_flags_feature = feature(
-        name = "user_compile_flags",
-        enabled = True,
-        flag_sets = [
-            flag_set(
-                actions = ALL_COMPILE_ACTIONS,
-                flag_groups = [
-                    flag_group(
-                        expand_if_available = "user_compile_flags",
-                        flags = ["%{user_compile_flags}"],
-                        iterate_over = "user_compile_flags",
-                    ),
-                ],
-            ),
-        ],
-    )
-
-    sysroot_feature = feature(
-        name = "sysroot",
-        enabled = True,
-        flag_sets = [
-            flag_set(
-                actions = ALL_COMPILE_ACTIONS + ALL_LINK_ACTIONS,
-                flag_groups = [
-                    flag_group(
-                        expand_if_available = "sysroot",
-                        flags = ["--sysroot=%{sysroot}"],
-                    ),
-                ],
-            ),
-        ],
-    )
-
-    coverage_feature = feature(
-        name = "coverage",
-        flag_sets = [
-            flag_set(
-                actions = ALL_COMPILE_ACTIONS,
-                flag_groups = [
-                    flag_group(
-                        flags = ["-fprofile-instr-generate", "-fcoverage-mapping"],
-                    ),
-                ],
-            ),
-            flag_set(
-                actions = ALL_LINK_ACTIONS,
-                flag_groups = [flag_group(flags = ["-fprofile-instr-generate"])],
-            ),
-        ],
-        provides = ["profile"],
-    )
-
-    features = [
-        opt_feature,
-        fastbuild_feature,
-        dbg_feature,
-        random_seed_feature,
-        supports_pic_feature,
-        supports_dynamic_linker_feature,
-        unfiltered_compile_flags_feature,
-        default_link_flags_feature,
-        default_compile_flags_feature,
-        objcopy_embed_flags_feature,
-        user_compile_flags_feature,
-        sysroot_feature,
-        coverage_feature,
-    ]
+    # TODO: add the applicable features
+    features = []
 
     tool_paths = [
-        tool_path(name = "ld", path = "/usr/bin/ld.lld"),
-        tool_path(name = "cpp", path = "/usr/bin/clang-cpp"),
-        tool_path(name = "dwp", path = "/usr/bin/llvm-dwp"),
-        tool_path(name = "gcov", path = "/usr/bin/llvm-profdata"),
-        tool_path(name = "nm", path = "/usr/bin/llvm-nm"),
-        tool_path(name = "objcopy", path = "/usr/bin/llvm-objcopy"),
-        tool_path(name = "objdump", path = "/usr/bin/llvm-objdump"),
-        tool_path(name = "strip", path = "/usr/bin/strip"),
-        tool_path(name = "gcc", path = "/usr/bin/clang"),
-        tool_path(name = "ar", path = "/usr/bin/llvm-ar"),
+        tool_path(name = "ld", path = install_path +"bin/" + arch + "-ld"),
+        tool_path(name = "cpp", path = install_path +"bin/" + arch + "-cpp"),
+        tool_path(name = "dwp", path = install_path +"bin/" + arch + "-dwp"),
+        tool_path(name = "gcov", path = install_path +"bin/" + arch + "-gcov"),
+        tool_path(name = "nm", path = install_path +"bin/" + arch + "-nm"),
+        tool_path(name = "objcopy", path = install_path +"bin/" + arch + "-objcopy"),
+        tool_path(name = "objdump", path = install_path +"bin/" + arch + "-objdump"),
+        tool_path(name = "strip", path = install_path +"bin/" + arch + "-strip"),
+        tool_path(name = "gcc", path = install_path +"bin/" + arch + "-gcc"),
+        tool_path(name = "ar", path = install_path +"bin/" + arch + "-ar"),
     ]
 
     return cc_common.create_cc_toolchain_config_info(
         ctx = ctx,
         features = features,
         abi_version = abi_version,
-        abi_libc_version = abi_libc_version,
         builtin_sysroot = sysroot,
         compiler = compiler,
         cxx_builtin_include_directories = cross_system_include_dirs,
@@ -336,8 +96,9 @@ def _impl(ctx):
         toolchain_identifier = toolchain_identifier,
     )
 
+# mvp for arm only, windows and osx later
 cc_toolchain_config = rule(
-    implementation = _impl,
+    implementation = _linux_arm64_impl,
     attrs = {
         "target": attr.string(mandatory = True),
         "stdlib": attr.string(),

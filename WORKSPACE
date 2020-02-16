@@ -4,7 +4,7 @@ load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 load("@bazel_tools//tools/build_defs/repo:git.bzl", "git_repository")
 
 register_toolchains(
-    "//tools/cpp/cross:cc-toolchain-clang"
+    "//tools/cpp/cross:cc-toolchain-gcc"
 )
 http_archive(
     name = "bazel_skylib",
