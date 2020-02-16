@@ -3,6 +3,9 @@ workspace(name = "prysm")
 load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 load("@bazel_tools//tools/build_defs/repo:git.bzl", "git_repository")
 
+register_toolchains(
+    "//tools/cpp/cross:cc-toolchain-clang"
+)
 http_archive(
     name = "bazel_skylib",
     sha256 = "2ea8a5ed2b448baf4a6855d3ce049c4c452a6470b1efd1504fdb7c1c134d220a",
