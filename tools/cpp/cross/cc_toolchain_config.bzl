@@ -56,6 +56,7 @@ def _linux_arm64_impl(ctx):
     cross_system_lib_dirs = [
         include_path_prefix + "lib",
         install_path + "lib",
+        sysroot + "lib"
     ]
 
     opt_feature = feature(name = "opt")
@@ -65,8 +66,47 @@ def _linux_arm64_impl(ctx):
     supports_pic_feature = feature(name = "supports_pic", enabled = True)
     supports_dynamic_linker_feature = feature(name = "supports_dynamic_linker", enabled = True)
 
+    if (ctx.attr.stdlib == "gnu"):
+        additional_link_flags = ["-lstdc++"]
+    else:
+        additional_link_flags = []
+
+    default_link_flags_feature = feature(
+        name = "default_link_flags",
+        enabled = True,
+        flag_sets = [
+            flag_set(
+                actions = ALL_LINK_ACTIONS,
+                flag_groups = [
+                    flag_group(
+                        flags = additional_link_flags + [
+                            "--target=" + ctx.attr.target,
+                            "-lm",
+                            "-no-canonical-prefixes",
+                            "-Wl,--build-id=md5",
+                            "-Wl,--hash-style=gnu",
+                            "-Wl,-z,relro,-z,now",
+                        ] + ["-L" + d for d in cross_system_lib_dirs],
+                    ),
+                ],
+            ),
+            flag_set(
+                actions = ALL_LINK_ACTIONS,
+                flag_groups = [flag_group(flags = ["-Wl,--gc-sections"])],
+                with_features = [with_feature_set(features = ["opt"])],
+            ),
+        ],
+    )
     # TODO: add the applicable features
-    features = []
+    features = [ 
+      opt_feature,
+      dbg_feature,
+      fastbuild_feature,
+      random_seed_feature,
+      supports_pic_feature,
+      supports_dynamic_linker_feature,
+      default_link_flags_feature,
+    ]
 
     tool_paths = [
         tool_path(name = "ld", path = install_path +"bin/" + arch + "-ld"),
@@ -85,6 +125,7 @@ def _linux_arm64_impl(ctx):
         ctx = ctx,
         features = features,
         abi_version = abi_version,
+	abi_libc_version = abi_libc_version,
         builtin_sysroot = sysroot,
         compiler = compiler,
         cxx_builtin_include_directories = cross_system_include_dirs,

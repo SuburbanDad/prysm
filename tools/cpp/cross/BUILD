@@ -70,12 +70,29 @@ cc_toolchain_config(
     ],
     toolchain = select({
         ":linux_arm64": ":cc-gcc-arm64" + s,
-        ":linux_amd64": ":cc-gcc-amd64" + s,
     }),
     toolchain_type = "@bazel_tools//tools/cpp:toolchain_type",
 ) for s in ("", "-gnu")]
 
-#TODO: is this necessary?
-load(":cc_toolchain_make_variables.bzl", "cc_make_variable_supplier")
 
-cc_make_variable_supplier(name = "cc_make_vars")
+
+
+toolchain(
+  name = "cc-toolchain-mvp-arm64",
+  exec_compatible_with = [
+    "@platforms//os:linux",
+    "@platforms//cpu:x86_64",
+  ],
+  target_compatible_with = [
+    "@platforms//os:linux",
+    "@platforms//cpu:aarch64",
+  ],
+  toolchain = ":cc-gcc-arm64",
+  toolchain_type = "@bazel_tools//tools/cpp:toolchain_type",
+)
+
+
+#TODO: is this necessary?
+#load(":cc_toolchain_make_variables.bzl", "cc_make_variable_supplier")
+#
+#cc_make_variable_supplier(name = "cc_make_vars")
