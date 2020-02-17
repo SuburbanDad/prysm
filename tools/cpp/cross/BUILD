@@ -20,6 +20,7 @@ cc_toolchain_suite(
     name = "toolchain",
     toolchains = {
         "aarch64": ":cc-gcc-arm64",
+        "default": "@local_config_platform//:host",
     },
 )
 
