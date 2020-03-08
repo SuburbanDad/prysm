@@ -8,7 +8,7 @@ cc_toolchain_suite(
     name = "multiarch_toolchain",
     toolchains = {
         "k8|osxcross": ":cc-clang-osx",
-        "darwin": ":cc-clang-osx",
+        "darwin": "@local_config_cc//:cc-compiler-darwin",
         "k8|clang": "cc-clang-amd64",
         "aarch64|clang": ":cc-clang-arm64",
         "k8": "cc-clang-amd64",
